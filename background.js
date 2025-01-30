@@ -1,6 +1,6 @@
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === "fetch_odds") {
-    fetch("https://oddsjam.com/nba/odds")
+  if (request.action === "fetch_odds" && request.url) {
+    fetch(request.url)
       .then((response) => response.text())
       .then((html) => sendResponse({ data: html }))
       .catch((error) => sendResponse({ error: error.message }));

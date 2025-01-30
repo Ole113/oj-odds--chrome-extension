@@ -1,5 +1,5 @@
-const styleId = "odds-button-style";
-
+const BUTTON_ID = "odds-button-style";
+let PLAYER_STATS = {};
 const ODDS_URLS = {
   nfl: "https://oddsjam.com/nfl/odds",
   nba: "https://oddsjam.com/nba/odds",
@@ -7,12 +7,7 @@ const ODDS_URLS = {
   ncaaf: "https://oddsjam.com/ncaaf/odds",
 };
 
-// Inject CSS Styles
-function injectStyles() {
-  if (!document.getElementById(styleId)) {
-    const style = document.createElement("style");
-    style.id = styleId;
-    style.innerHTML = `
+const LINK_STYLES = `
       .odds-button {
         width: fit-content;
         height: 30px;
@@ -29,16 +24,23 @@ function injectStyles() {
 
       .odds-button:hover {
         text-decoration: underline;
-      }
-    `;
+      }`;
+
+// Inject CSS Styles
+function injectStyles() {
+  if (!document.getElementById(BUTTON_ID)) {
+    const style = document.createElement("style");
+    style.id = BUTTON_ID;
+    style.innerHTML = LINK_STYLES;
     document.head.appendChild(style);
   }
 }
 
-// Attach Buttons to Table Rows
+/**
+ * Puts the buttons below the player picture on every row
+ */
 function applyButtons() {
   document.querySelectorAll("tr").forEach((trElem) => {
-    const player = {};
     let pictureTd;
     let button = trElem.querySelector(".odds-button");
 
@@ -46,8 +48,7 @@ function applyButtons() {
       button = document.createElement("button");
       button.className = "odds-button";
       button.textContent = "Odds";
-      button.dataset.url = "https://www.hello.com";
-      button.addEventListener("click", onButtonClick);
+      button.addEventListener("click", oddsButtonClicked);
     }
 
     Array.from(trElem.querySelectorAll("td"))
@@ -57,18 +58,23 @@ function applyButtons() {
 
         if (tdIndex === 1) {
           tdElem.querySelectorAll("div p").forEach((pElem, pIndex) => {
-            if (pIndex === 0) player.name = pElem.innerHTML;
+            if (pIndex === 0) PLAYER_STATS.name = pElem.innerHTML.trim();
             else if (pIndex === 1)
-              player.team = pElem.querySelector("span")?.innerHTML || "";
-            else if (pIndex === 2) player.sport = pElem.innerHTML.split("•")[0];
+              PLAYER_STATS.team =
+                pElem.querySelector("span")?.innerHTML.trim() || "";
+            else if (pIndex === 2)
+              PLAYER_STATS.sport = pElem.innerHTML.split("•")[0].trim();
           });
         } else if (tdIndex === 2)
-          player.ou = tdElem.querySelector("div p")?.innerHTML || "";
+          PLAYER_STATS.ou =
+            tdElem.querySelector("div p")?.innerHTML.trim() || "";
         else if (tdIndex === 3)
-          player.stat = tdElem.querySelector("div p div")?.innerText || "";
+          PLAYER_STATS.stat =
+            tdElem.querySelector("div p div")?.innerText || "";
         else if (tdIndex === 4) {
-          player.line = tdElem.querySelector("div p")?.innerHTML || "";
-          button.dataset.player = JSON.stringify(player);
+          PLAYER_STATS.line =
+            tdElem.querySelector("div p")?.innerHTML.trim() || "";
+          button.dataset.player = JSON.stringify(PLAYER_STATS);
           if (pictureTd && !pictureTd.contains(button))
             pictureTd.appendChild(button);
         }
@@ -76,54 +82,94 @@ function applyButtons() {
   });
 }
 
-// Button Click Handler
-async function onButtonClick(event) {
-  const button = event.target;
-  const url = button.dataset.url;
-  const playerData = button.dataset.player;
-
-  //   console.log(await fetchToHTML(ODDS_URLS.nba));
-  //   if (playerData) {
-  //     const player = JSON.parse(playerData);
-  //     alert(
-  //       `Player Info:\nName: ${player.name}\nTeam: ${player.team}\nSport: ${player.sport}\nOU: ${player.ou}\nStat: ${player.stat}\nLine: ${player.line}`
-  //     );
-  //   }
-
-  //   if (url) {
-  //     window.open(url, "_blank");
-  //   }
+/**
+ * Called when the Odds button is clicked
+ *
+ * @param {any} event
+ */
+async function oddsButtonClicked(event) {
+  PLAYER_STATS = JSON.parse(event.srcElement.dataset.player);
+  const sportURL = getSportURL(PLAYER_STATS.sport);
+  chrome.runtime.sendMessage(
+    { action: "fetch_odds", url: sportURL },
+    (response) => {
+      if (response && response.data) {
+        findGameDiv(response.data, sportURL);
+      } else {
+        console.error("Fetch Error:", response.error);
+      }
+    }
+  );
 }
 
-chrome.runtime.sendMessage({ action: "fetch_odds" }, async (response) => {
-  if (response.data) {
-    await responseToHTML(response.data);
-    console.log("Fetched HTML:", response.data);
-  } else {
-    console.error("Fetch failed:", response.error);
+/**
+ * Converts sport name in the url for the sports odds
+ *
+ * @param {String} sport
+ * @returns The url
+ */
+function getSportURL(sport) {
+  switch (sport) {
+    case "NBA":
+      return ODDS_URLS.nba;
+    case "NCAAB":
+      return ODDS_URLS.ncaab;
+    case "NFL":
+      return ODDS_URLS.nfl;
   }
-});
+}
 
-async function responseToHTML(response) {
+/**
+ * Finds the link of the card for the game
+ *
+ * @param {String} response String response of the odds link
+ */
+function findGameDiv(response, sportURL) {
   try {
     const parser = new DOMParser();
     const doc = parser.parseFromString(response, "text/html");
 
-    const firstDiv = doc.querySelector("main div div div div");
-    if (firstDiv) {
-      console.log("First Div Content:", firstDiv.textContent.trim());
-    } else {
-      console.error("firstDiv not found!");
+    const gameCards = doc.querySelectorAll("main div div div div");
+
+    outerLoop: for (let i = 0; i < gameCards.length; i++) {
+      const gameCard = gameCards[i];
+      const aTags = gameCard.querySelectorAll("a");
+
+      for (let j = 0; j < aTags.length; j++) {
+        const aTag = aTags[j];
+        console.log(aTag.href);
+        const pTags = aTag.querySelectorAll("div p");
+
+        for (let k = 0; k < pTags.length; k++) {
+          const pTag = pTags[k];
+          if (isNaN(Number(pTag.innerHTML))) {
+            if (pTag.innerHTML == PLAYER_STATS.team) {
+              const formattedPlayerStat = PLAYER_STATS.stat
+                .toLowerCase()
+                .replaceAll(" ", "_");
+
+              const encodedMarket = encodeURIComponent(
+                `player_${formattedPlayerStat}`
+              );
+
+              const url =
+                aTag.href.replace("fantasy.", "") + `?market=${encodedMarket}`;
+              window.open(url, "_blank");
+
+              break outerLoop;
+            }
+          }
+        }
+      }
     }
   } catch (error) {
     console.error("Error fetching or modifying HTML:", error);
   }
 }
 
-// Run on Load
 injectStyles();
 applyButtons();
 
-// MutationObserver for React Updates
+// MutationObserver for React Updates so the buttons will re applied after every DOM refresh
 const observer = new MutationObserver(() => applyButtons());
 observer.observe(document.body, { childList: true, subtree: true });
